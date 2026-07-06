@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasInsforgeAdminKey, insforgeAdmin } from "@/lib/insforge-admin";
 import { publishAlertRealtimeEvent } from "@/lib/alerts-realtime";
+import { loadMockDB, saveMockDB } from "@/lib/mock-db-store";
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Internal Server Error";
@@ -16,13 +17,6 @@ const statusByAction: Record<string, string> = {
 
 export async function POST(req: NextRequest) {
   try {
-    if (!hasInsforgeAdminKey) {
-      return NextResponse.json(
-        { error: "INSFORGE_API_KEY is required to update alerts with RLS enabled." },
-        { status: 503 }
-      );
-    }
-
     const { userId, alertId, action } = await req.json();
 
     if (!userId || !alertId || !action) {
@@ -32,7 +26,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const status = statusByAction[action] || "active";
+    let status = (statusByAction[action] || "active") as any;
+
+    if (!hasInsforgeAdminKey) {
+      const db = loadMockDB();
+      const alert = db.alerts.find(a => a.id === alertId);
+      if (alert) {
+        alert.status = status;
+        alert.updated_at = new Date().toISOString();
+        if (action === "snoozed") {
+          const snoozedUntil = new Date();
+          snoozedUntil.setHours(snoozedUntil.getHours() + 2);
+          alert.snoozed_until = snoozedUntil.toISOString();
+        }
+        if (action === "task" || action === "follow_up" || action === "send_reply") {
+          alert.last_action = action;
+        }
+        saveMockDB(db);
+        return NextResponse.json(alert);
+      }
+      return NextResponse.json({ id: alertId, status });
+    }
+
+    status = statusByAction[action] || "active";
     const updates: Record<string, string> = {
       status,
       updated_at: new Date().toISOString()

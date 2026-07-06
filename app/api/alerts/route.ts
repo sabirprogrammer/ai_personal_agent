@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasInsforgeAdminKey, insforgeAdmin } from "@/lib/insforge-admin";
+import { loadMockDB } from "@/lib/mock-db-store";
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Internal Server Error";
@@ -8,10 +9,8 @@ function getErrorMessage(error: unknown): string {
 export async function GET(req: NextRequest) {
   try {
     if (!hasInsforgeAdminKey) {
-      return NextResponse.json(
-        { error: "INSFORGE_API_KEY is required to read alerts with RLS enabled." },
-        { status: 503 }
-      );
+      const db = loadMockDB();
+      return NextResponse.json(db.alerts);
     }
 
     const { searchParams } = new URL(req.url);

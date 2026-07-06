@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasInsforgeAdminKey, insforgeAdmin } from "@/lib/insforge-admin";
 import { publishAlertRealtimeEvent } from "@/lib/alerts-realtime";
+import { loadMockDB, saveMockDB } from "@/lib/mock-db-store";
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Internal Server Error";
@@ -17,13 +18,7 @@ function getNextCheckAt(frequency: string): string {
 
 export async function POST(req: NextRequest) {
   try {
-    if (!hasInsforgeAdminKey) {
-      return NextResponse.json(
-        { error: "INSFORGE_API_KEY is required to create alert rules with RLS enabled." },
-        { status: 503 }
-      );
-    }
-
+    const body = await req.json();
     const {
       userId,
       name,
@@ -34,7 +29,29 @@ export async function POST(req: NextRequest) {
       notificationMethod,
       frequency,
       action
-    } = await req.json();
+    } = body;
+
+    if (!hasInsforgeAdminKey) {
+      const db = loadMockDB();
+      const newRule = {
+        id: "rule_" + Math.random().toString(36).substring(2, 11),
+        user_id: userId || "demo_user",
+        name: name || "New Rule",
+        description: description || "",
+        apps: apps || ["gmail"],
+        condition: condition || "",
+        priority: (priority || "medium") as 'high' | 'medium' | 'low',
+        notification_method: notificationMethod || "in_app",
+        frequency: frequency || "real_time",
+        action: action || "notify",
+        status: "active" as const,
+        next_check_at: getNextCheckAt(frequency || "real_time"),
+        created_at: new Date().toISOString()
+      };
+      db.rules.push(newRule);
+      saveMockDB(db);
+      return NextResponse.json(newRule);
+    }
 
     if (!userId || !name || !condition || !Array.isArray(apps) || apps.length === 0) {
       return NextResponse.json(
