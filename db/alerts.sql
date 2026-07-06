@@ -112,3 +112,18 @@ begin
       with check (auth.uid() = user_id);
   end if;
 end $$;
+
+-- ── OTP CODES DATABASE TABLE ──
+create table if not exists public.otp_codes (
+  id uuid primary key default gen_random_uuid(),
+  phone text not null,
+  method text not null,
+  code text not null,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  constraint otp_codes_phone_method_key unique (phone, method)
+);
+
+alter table public.otp_codes enable row level security;
+-- OTP verification code tables should not have any public client policies.
+-- They are only queried/mutated by the server using an admin key.

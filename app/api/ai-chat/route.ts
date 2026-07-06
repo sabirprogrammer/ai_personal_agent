@@ -146,7 +146,7 @@ Instructions:
 Make sure the JSON is valid.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
+      model: "gemini-2.5-flash",
       contents: [
         { role: "user", parts: [{ text: systemPrompt }] },
         ...formattedHistory

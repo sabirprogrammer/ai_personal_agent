@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     }
 
     // Verify the OTP
-    const isValid = verifyOtp(phoneNumber, method, otp);
+    const isValid = await verifyOtp(phoneNumber, method, otp);
 
     if (!isValid) {
       return NextResponse.json(

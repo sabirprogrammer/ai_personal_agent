@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     const otp = generateOTP();
 
     // Persist OTP server-side with 10-minute TTL
-    storeOtp(phoneNumber, method, otp);
+    await storeOtp(phoneNumber, method, otp);
 
     // Initialize Sent.dm client
     const client = new SentDm({ apiKey });
