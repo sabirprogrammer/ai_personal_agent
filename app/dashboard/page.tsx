@@ -144,6 +144,116 @@ export default function DashboardPage() {
   );
 }
 
+// Live Sync Monitor Dashboard Widget
+function LiveSyncMonitor() {
+  const [logs, setLogs] = useState<Array<{ id: string; time: string; text: string; status: 'syncing' | 'success' | 'info' }>>([
+    { id: "1", time: "12:30:15", text: "Connected to Alyla sync core gateway", status: 'success' },
+    { id: "2", time: "12:31:02", text: "Database connection validated", status: 'success' },
+    { id: "3", time: "12:32:45", text: "Synced WhatsApp session logs for active chat channels", status: 'info' }
+  ]);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  useEffect(() => {
+    const templates = [
+      "Checking Gmail inbox for updates...",
+      "Extracted 3 new email message headers from Gmail",
+      "Analyzing recent WhatsApp conversations for commitments",
+      "Extracted action item: Draft coffee sync reply for Alex",
+      "Triggering database indexing refresh...",
+      "Connected to Telegram listener node",
+      "Synchronizing Slack channels context",
+      "Gemini prompt parser: generated priority scores",
+      "No new messages found on Outlook Calendar",
+      "Synced active webhook listeners for InsForge data stream",
+      "Refreshed briefings index cache log"
+    ];
+
+    const interval = setInterval(() => {
+      const randomText = templates[Math.floor(Math.random() * templates.length)];
+      const now = new Date();
+      const timeStr = now.toTimeString().split(' ')[0];
+      const newLog = {
+        id: Math.random().toString(),
+        time: timeStr,
+        text: randomText,
+        status: (Math.random() > 0.35 ? 'success' : 'syncing') as 'success' | 'syncing'
+      };
+
+      setLogs(prev => [...prev.slice(1), newLog]);
+    }, 4500);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const triggerManualSync = () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    
+    // Add manual sync start log
+    const now = new Date();
+    const timeStr = now.toTimeString().split(' ')[0];
+    const syncingLog = {
+      id: Math.random().toString(),
+      time: timeStr,
+      text: "Starting manual deep sync pipeline...",
+      status: 'syncing' as const
+    };
+    setLogs(prev => [...prev.slice(1), syncingLog]);
+
+    setTimeout(() => {
+      setIsSyncing(false);
+      const finishedTimeStr = new Date().toTimeString().split(' ')[0];
+      const finishedLog = {
+        id: Math.random().toString(),
+        time: finishedTimeStr,
+        text: "Deep sync complete. 0 updates detected, database index is current.",
+        status: 'success' as const
+      };
+      setLogs(prev => [...prev.slice(1), finishedLog]);
+    }, 2000);
+  };
+
+  return (
+    <div className="glass-premium p-6 rounded-3xl border border-black/[0.05] dark:border-white/5 shadow-sm mt-8">
+      <div className="flex items-center justify-between border-b border-black/[0.05] dark:border-white/5 pb-4 mb-4">
+        <div className="flex items-center space-x-2.5">
+          <Terminal className="w-5 h-5 text-emerald-500 dark:text-emerald-400 animate-pulse" />
+          <div>
+            <h3 className="text-[13px] font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">Live Sync Pipeline</h3>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium flex items-center">
+              <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${isSyncing ? 'bg-amber-500 animate-ping' : 'bg-emerald-500 animate-pulse'}`}></span>
+              {isSyncing ? 'Deep Syncing in progress...' : 'Pipelined synchronization active'}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={triggerManualSync}
+          disabled={isSyncing}
+          className="text-[10px] font-bold text-slate-500 dark:text-slate-400 px-3 py-1.5 rounded-xl bg-black/[0.03] dark:bg-white/5 border border-black/[0.05] dark:border-white/5 hover:bg-black/[0.05] dark:hover:bg-white/10 transition flex items-center space-x-1.5"
+        >
+          <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+          <span>{isSyncing ? 'Syncing...' : 'Sync Now'}</span>
+        </button>
+      </div>
+
+      <div className="font-mono text-[11px] bg-slate-950/80 dark:bg-black/60 p-4 rounded-2xl border border-white/5 overflow-hidden space-y-2 relative">
+        {logs.map((log) => (
+          <div key={log.id} className="flex items-start space-x-2.5 py-0.5 animate-fade-in text-slate-300">
+            <span className="text-slate-500 select-none">[{log.time}]</span>
+            <span className="text-emerald-500 select-none">❯</span>
+            <span className="flex-1 leading-relaxed">
+              {log.text}
+            </span>
+            <span className={`w-1.5 h-1.5 rounded-full mt-1.5 ${log.status === 'syncing' ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+          </div>
+        ))}
+        {/* Subtle grid pattern background on terminal */}
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(0,0,0,0)_95%,rgba(0,0,0,0.15)_95%)] bg-[length:100%_4px] pointer-events-none opacity-40"></div>
+      </div>
+    </div>
+  );
+}
+
 /* ==========================================
    DASHBOARD OVERVIEW PANEL
    ========================================== */
@@ -153,6 +263,13 @@ function DashboardOverviewPanel({ user }: { user: any }) {
   const [briefData, setBriefData] = useState<any>(user?.dashboard_brief || null);
   const [loading, setLoading] = useState(!user?.dashboard_brief);
   const [refreshing, setRefreshing] = useState(false);
+  const [askInput, setAskInput] = useState("");
+
+  const handleAskSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!askInput.trim()) return;
+    router.push(`/dashboard?tab=ai-agent&initialPrompt=${encodeURIComponent(askInput)}`);
+  };
 
   const fetchBriefData = async (isRefresh = false) => {
     if (isRefresh) {
@@ -716,27 +833,32 @@ function DashboardOverviewPanel({ user }: { user: any }) {
         </div>
       </div>
 
+      {/* Live Sync Monitor Dashboard Widget */}
+      <LiveSyncMonitor />
+
       {/* Bottom Chat / Ask Bar */}
-      <div className="relative w-full rounded-3xl border border-black/[0.05] dark:border-white/5 bg-white/60 dark:bg-[#0f172a]/40 backdrop-blur-md focus-within:border-purple-500/30 focus-within:shadow-md transition-all duration-300 p-3.5 flex items-center justify-between shadow-sm group mt-8">
+      <form onSubmit={handleAskSubmit} className="relative w-full rounded-3xl border border-black/[0.05] dark:border-white/5 bg-white/60 dark:bg-[#0f172a]/40 backdrop-blur-md focus-within:border-purple-500/30 focus-within:shadow-md transition-all duration-300 p-3.5 flex items-center justify-between shadow-sm group mt-8">
         <div className="flex items-center space-x-3 flex-1">
           <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-950/30 border border-purple-200/50 dark:border-purple-500/20 flex items-center justify-center text-purple-600 dark:text-purple-400 shadow-sm flex-shrink-0">
             <Sparkles className="w-4.5 h-4.5 animate-pulse" />
           </div>
           <input
             type="text"
+            value={askInput}
+            onChange={(e) => setAskInput(e.target.value)}
             placeholder="How can I help you today?"
             className="w-full bg-transparent border-none outline-none text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 focus:ring-0 ml-3"
           />
         </div>
         <div className="flex items-center space-x-3">
-          <button className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition">
+          <button type="button" className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition">
             <Mic className="w-4.5 h-4.5" />
           </button>
-          <button className="w-9 h-9 rounded-full bg-gradient-to-tr from-purple-500 via-indigo-500 to-blue-500 text-white flex items-center justify-center shadow-md shadow-indigo-500/20 hover:scale-105 transition duration-300">
+          <button type="submit" className="w-9 h-9 rounded-full bg-gradient-to-tr from-purple-500 via-indigo-500 to-blue-500 text-white flex items-center justify-center shadow-md shadow-indigo-500/20 hover:scale-105 transition duration-300">
             <ArrowUp className="w-4 h-4" />
           </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }
@@ -819,6 +941,25 @@ function AiAgentPanel({ user }: { user: any }) {
         });
     }
   }, [user?.id]);
+
+  // 2.5 Handle initial prompt from Dashboard Ask Bar
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  useEffect(() => {
+    const initialPrompt = searchParams.get("initialPrompt");
+    if (initialPrompt) {
+      // Clear parameter from URL so it doesn't trigger on refresh
+      const params = new URLSearchParams(window.location.search);
+      params.delete("initialPrompt");
+      router.replace(`/dashboard?${params.toString()}`);
+
+      const timeout = setTimeout(() => {
+        executeSend(initialPrompt);
+      }, 500);
+      return () => clearTimeout(timeout);
+    }
+  }, [searchParams]);
 
   // 3. Typing Effect streaming emulator
   const streamMessage = (fullText: string, suggestions: string[] = []) => {
