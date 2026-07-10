@@ -5,7 +5,7 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@alyla.ai";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "AdminSecretPass123!";
 
 // Predefined pbkdf2 hash of "AdminSecretPass123!" using salt "salt123"
-const DEFAULT_HASHED_PASS = "salt123:6ea48a2f4efec3c0f4dfb5dbd0e9d6d1b7d5fce7263b6510a716c96b77cd2f7e7e23118cf94519967e8140db50bcfd7b7adbe874a7b74ea14092b3a89345e8b6";
+const DEFAULT_HASHED_PASS = "salt123:7933343ea0e3db40118df7f6f8113af78a6196d1ae7fef55c6b555c9898f0763986a7c5991f9bb6c07662e91985be6ce2c9ce0b58aa816857a028b8cf9e9c102";
 
 /**
  * Haps password input using PBKDF2 with a random salt.
@@ -65,10 +65,11 @@ export function validateAdminCredentials(emailOrUsername: string, passwordInput:
     return false;
   }
 
-  // If password matches env config (plaintext), or default hashed password
-  if (process.env.ADMIN_PASSWORD) {
-    return passwordInput === ADMIN_PASSWORD;
+  // First check process.env.ADMIN_PASSWORD if it is set in environment (plaintext check)
+  if (process.env.ADMIN_PASSWORD && passwordInput === process.env.ADMIN_PASSWORD) {
+    return true;
   }
 
+  // Fallback to verifying against the correct default pbkdf2 hashed password
   return verifyPassword(passwordInput, DEFAULT_HASHED_PASS);
 }
