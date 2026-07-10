@@ -48,20 +48,20 @@ async function verifyToken(token: string): Promise<boolean> {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Protect all /admin routes except /admin/login and API endpoints
-  if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
+  // Protect all /admin routes
+  if (pathname.startsWith("/admin")) {
     const sessionCookie = request.cookies.get("admin_session")?.value;
     
     if (!sessionCookie) {
       const url = request.nextUrl.clone();
-      url.pathname = "/admin/login";
+      url.pathname = "/sign-in";
       return NextResponse.redirect(url);
     }
 
     const isValid = await verifyToken(sessionCookie);
     if (!isValid) {
       const url = request.nextUrl.clone();
-      url.pathname = "/admin/login";
+      url.pathname = "/sign-in";
       return NextResponse.redirect(url);
     }
   }

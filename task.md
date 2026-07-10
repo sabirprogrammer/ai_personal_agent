@@ -1,0 +1,5 @@
+- [x] Update /sign-in submit handler (`app/sign-in/page.tsx`) to auto-detect admin vs user
+- [x] Clean up admin shortcut link in the sign-in page footer (`app/sign-in/page.tsx`)
+- [x] Delete `/admin/login` page directory
+- [x] Update route protection redirects to point to `/sign-in` (`middleware.ts`)
+- [x] Verify everything compiles and builds successfully
