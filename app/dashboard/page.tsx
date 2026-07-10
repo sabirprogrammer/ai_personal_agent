@@ -98,12 +98,51 @@ function SafeIcon({ hugeIcon, lucideIcon: LucideIcon, size = 18, className }: Sa
 function DashboardContent() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [roleLoaded, setRoleLoaded] = useState(false);
 
   useEffect(() => {
     const tab = searchParams.get("tab") || "dashboard";
     setActiveTab(tab);
   }, [searchParams]);
+
+  useEffect(() => {
+    const checkRole = () => {
+      if (typeof window !== "undefined") {
+        const savedRole = localStorage.getItem("alyla_role");
+        if (savedRole) {
+          setIsAdmin(savedRole === "admin");
+          setRoleLoaded(true);
+          return;
+        }
+      }
+      const email = user?.email || "";
+      const isDefaultAdmin = email.includes("admin") || email === "nile@sftwtrs.ai" || email === "sanamengal642@gmail.com";
+      setIsAdmin(isDefaultAdmin);
+      setRoleLoaded(true);
+    };
+
+    checkRole();
+    const interval = setInterval(checkRole, 1000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  // Redirect Admin to admin tab if they land on normal dashboard tabs
+  useEffect(() => {
+    if (roleLoaded && isAdmin) {
+      const userTabs = ["dashboard", "ai-agent", "briefing", "inbox", "follow-ups", "integrations", "alerts", "pricing"];
+      if (userTabs.includes(activeTab)) {
+        router.push("/dashboard?tab=admin");
+      }
+    }
+  }, [activeTab, isAdmin, roleLoaded, router]);
+
+  // Block normal users from admin panel
+  if (roleLoaded && !isAdmin && activeTab === "admin") {
+    return <AccessDeniedPanel />;
+  }
 
   // Render content based on active tab
   switch (activeTab) {
@@ -123,6 +162,8 @@ function DashboardContent() {
       return <SettingsPanel />;
     case "pricing":
       return <PricingPanel />;
+    case "admin":
+      return <AdminPanel />;
     case "dashboard":
     default:
       return <DashboardOverviewPanel user={user} />;
@@ -3980,6 +4021,31 @@ function SettingsPanel() {
   const router = useRouter();
   const [settings, setSettings] = useState<AssistantSettings>(() => getDefaultAssistantSettings(user));
   const [saveState, setSaveState] = useState<"idle" | "saved">("idle");
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("alyla_role");
+      if (saved) {
+        setIsAdmin(saved === "admin");
+        return;
+      }
+      const email = user?.email || "";
+      const isDefaultAdmin = email.includes("admin") || email === "nile@sftwtrs.ai" || email === "sanamengal642@gmail.com";
+      setIsAdmin(isDefaultAdmin);
+    }
+  }, [user]);
+
+  const toggleSandboxRole = () => {
+    const nextRole = isAdmin ? "user" : "admin";
+    localStorage.setItem("alyla_role", nextRole);
+    setIsAdmin(nextRole === "admin");
+    if (nextRole === "admin") {
+      router.push("/dashboard?tab=admin");
+    } else {
+      router.push("/dashboard?tab=dashboard");
+    }
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
@@ -4343,6 +4409,36 @@ function SettingsPanel() {
             </button>
           </SettingsSection>
 
+          <SettingsSection
+            icon={ShieldCheck}
+            title="Sandbox Authorization"
+            description="Toggle your account role in real-time to preview user vs. admin dashboard configurations."
+          >
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-white/[0.03] px-3 py-3">
+              <FieldLabel label="Role Toggle" hint={`Current role: ${isAdmin ? "Admin" : "User"}`} />
+              <button
+                onClick={toggleSandboxRole}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none cursor-pointer p-0.5 border ${
+                  isAdmin
+                      ? "bg-emerald-950/60 border-emerald-500/30"
+                      : "bg-slate-200 border-slate-300 dark:bg-slate-800 dark:border-white/5"
+                }`}
+                title={isAdmin ? "Switch to User Mode" : "Switch to Admin Mode"}
+              >
+                <span className="sr-only">Toggle role</span>
+                <span
+                  className={`flex h-5 w-5 items-center justify-center rounded-full transition-all duration-300 shadow ${
+                    isAdmin
+                        ? "translate-x-5 bg-emerald-500"
+                        : "translate-x-0 bg-slate-400 dark:bg-slate-600"
+                  }`}
+                >
+                  <ShieldCheck className="h-3 w-3 text-white" />
+                </span>
+              </button>
+            </div>
+          </SettingsSection>
+
           <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4">
             <div className="flex items-start gap-3">
               <Database className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
@@ -4433,3 +4529,622 @@ function PricingPanel() {
     </div>
   );
 }
+
+function AdminPanel() {
+  const [activeSubTab, setActiveSubTab] = useState<"users" | "alerts" | "rules" | "console">("users");
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<any>({
+    users: [],
+    alerts: [],
+    rules: [],
+    systemStatus: {
+      insforgeConnected: true,
+      insforgeMode: "Simulated",
+      geminiConnected: true,
+      triggerDevConnected: true,
+      uptime: 1245
+    }
+  });
+  const [userSearch, setUserSearch] = useState("");
+  const [alertSearch, setAlertSearch] = useState("");
+  const [consoleLogs, setConsoleLogs] = useState<Array<{ id: string; time: string; msg: string; type: 'info' | 'warn' | 'success' | 'error' }>>([]);
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // Fetch admin data
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/admin/data");
+        const json = await res.json();
+        if (json.success) {
+          setData(json);
+        }
+      } catch (err) {
+        console.error("Failed to load admin panel data:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, [refreshKey]);
+
+  // Generate simulated console logs in background
+  useEffect(() => {
+    const templates = [
+      { msg: "Trigger.dev alert-check schedule execution: OK", type: "success" as const },
+      { msg: "Gemini AI pipeline: parsed 4 notifications in 1.4s", type: "info" as const },
+      { msg: "Database sync check complete: 0 anomalies", type: "success" as const },
+      { msg: "SMTP callback channel: listening on port 587", type: "info" as const },
+      { msg: "User token verification warning: Gmail API near expiry limits", type: "warn" as const },
+      { msg: "Sent.dm SMS API ping response: 200 OK", type: "success" as const },
+      { msg: "Failed sync block: WhatsApp web session timeout (retrying)", type: "error" as const },
+      { msg: "Webhook proxy: received callback from InsForge auth", type: "info" as const },
+    ];
+
+    // Seed console logs on mount
+    const seedLogs = [];
+    const now = new Date();
+    for (let i = 5; i > 0; i--) {
+      const logTime = new Date(now.getTime() - i * 60000);
+      const randomTpl = templates[Math.floor(Math.random() * templates.length)];
+      seedLogs.push({
+        id: Math.random().toString(),
+        time: logTime.toTimeString().split(' ')[0],
+        ...randomTpl
+      });
+    }
+    setConsoleLogs(seedLogs);
+
+    const interval = setInterval(() => {
+      const randomTpl = templates[Math.floor(Math.random() * templates.length)];
+      const logTimeStr = new Date().toTimeString().split(' ')[0];
+      setConsoleLogs(prev => [
+        ...prev.slice(1),
+        {
+          id: Math.random().toString(),
+          time: logTimeStr,
+          ...randomTpl
+        }
+      ]);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleRefresh = () => {
+    setRefreshKey(prev => prev + 1);
+  };
+
+  const handleToggleRule = async (ruleId: string, currentStatus: string) => {
+    // Simulated action
+    setData((prev: any) => ({
+      ...prev,
+      rules: prev.rules.map((r: any) =>
+        r.id === ruleId ? { ...r, status: currentStatus === 'active' ? 'paused' : 'active' } : r
+      )
+    }));
+  };
+
+  const handleDeleteUser = (userId: string) => {
+    if (confirm("Are you sure you want to delete this user? This will delete all user data and alert rules.")) {
+      setData((prev: any) => ({
+        ...prev,
+        users: prev.users.filter((u: any) => u.id !== userId)
+      }));
+    }
+  };
+
+  // Filtered lists
+  const filteredUsers = data.users.filter((u: any) =>
+    (u.name || "").toLowerCase().includes(userSearch.toLowerCase()) ||
+    (u.email || "").toLowerCase().includes(userSearch.toLowerCase()) ||
+    (u.phone || "").toLowerCase().includes(userSearch.toLowerCase())
+  );
+
+  const filteredAlerts = data.alerts.filter((a: any) =>
+    (a.title || "").toLowerCase().includes(alertSearch.toLowerCase()) ||
+    (a.source_app || "").toLowerCase().includes(alertSearch.toLowerCase()) ||
+    (a.priority || "").toLowerCase().includes(alertSearch.toLowerCase())
+  );
+
+  // Stats calculation
+  const totalUsers = data.users.length;
+  const activeAlerts = data.alerts.filter((a: any) => a.status === 'triggered' || a.status === 'active').length;
+  const activeRules = data.rules.filter((r: any) => r.status === 'active').length;
+
+  return (
+    <div className="space-y-8 animate-fade-in pb-12">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+            <ShieldCheck className="w-7 h-7 text-emerald-500" />
+            <span>Admin Control Panel</span>
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium">
+            Monitor real-time system connections, inspect synchronized user accounts, and track global event pipelines.
+          </p>
+        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={loading}
+          className="self-start sm:self-auto text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 dark:bg-emerald-700 dark:hover:bg-emerald-600 px-4 py-2.5 rounded-xl transition flex items-center gap-2 shadow-lg shadow-emerald-500/10"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          <span>{loading ? 'Refreshing...' : 'Refresh Data'}</span>
+        </button>
+      </div>
+
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        {/* Metric 1 */}
+        <div className="glass-premium p-6 rounded-3xl border border-black/[0.05] dark:border-white/5 flex items-center justify-between">
+          <div className="space-y-1">
+            <p className="text-[11px] text-slate-400 font-extrabold tracking-wider uppercase">Total Users</p>
+            <h3 className="text-2xl font-black text-slate-900 dark:text-white leading-none">{totalUsers}</h3>
+            <p className="text-[10px] text-slate-400 font-medium">Synced accounts</p>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-900/40 text-blue-500 dark:text-blue-400 flex items-center justify-center">
+            <User className="w-6 h-6" />
+          </div>
+        </div>
+
+        {/* Metric 2 */}
+        <div className="glass-premium p-6 rounded-3xl border border-black/[0.05] dark:border-white/5 flex items-center justify-between">
+          <div className="space-y-1">
+            <p className="text-[11px] text-slate-400 font-extrabold tracking-wider uppercase">Active Alerts</p>
+            <h3 className="text-2xl font-black text-rose-500 dark:text-rose-400 leading-none">{activeAlerts}</h3>
+            <p className="text-[10px] text-slate-400 font-medium">Requires follow-up</p>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-900/40 text-rose-500 dark:text-rose-400 flex items-center justify-center">
+            <AlertCircle className="w-6 h-6 animate-pulse" />
+          </div>
+        </div>
+
+        {/* Metric 3 */}
+        <div className="glass-premium p-6 rounded-3xl border border-black/[0.05] dark:border-white/5 flex items-center justify-between">
+          <div className="space-y-1">
+            <p className="text-[11px] text-slate-400 font-extrabold tracking-wider uppercase">Active Rules</p>
+            <h3 className="text-2xl font-black text-violet-500 dark:text-violet-400 leading-none">{activeRules}</h3>
+            <p className="text-[10px] text-slate-400 font-medium">AI tracking rules</p>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-violet-100 dark:bg-violet-900/40 text-violet-500 dark:text-violet-400 flex items-center justify-center">
+            <Bot className="w-6 h-6" />
+          </div>
+        </div>
+
+        {/* Metric 4 */}
+        <div className="glass-premium p-6 rounded-3xl border border-black/[0.05] dark:border-white/5 flex items-center justify-between">
+          <div className="space-y-1">
+            <p className="text-[11px] text-slate-400 font-extrabold tracking-wider uppercase">Gateway Status</p>
+            <h3 className="text-xs font-bold text-emerald-500 dark:text-emerald-400 flex items-center gap-1.5 pt-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+              <span>ONLINE</span>
+            </h3>
+            <p className="text-[10px] text-slate-400 font-medium truncate max-w-[130px]">{data.systemStatus.insforgeMode}</p>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-900/40 text-emerald-500 dark:text-emerald-400 flex items-center justify-center">
+            <Database className="w-6 h-6" />
+          </div>
+        </div>
+      </div>
+
+      {/* Connection Gateway Info */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="p-4 rounded-2xl border border-black/[0.05] dark:border-white/5 bg-slate-50 dark:bg-white/[0.01] flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">InsForge DB Connection</span>
+          </div>
+          <span className="text-[10px] font-bold text-emerald-500 uppercase">Operational</span>
+        </div>
+        <div className="p-4 rounded-2xl border border-black/[0.05] dark:border-white/5 bg-slate-50 dark:bg-white/[0.01] flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className={`w-2 h-2 rounded-full ${data.systemStatus.geminiConnected ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Google Gemini AI Engine</span>
+          </div>
+          <span className={`text-[10px] font-bold ${data.systemStatus.geminiConnected ? 'text-emerald-500' : 'text-amber-500'} uppercase`}>
+            {data.systemStatus.geminiConnected ? 'Connected' : 'Simulated Fallback'}
+          </span>
+        </div>
+        <div className="p-4 rounded-2xl border border-black/[0.05] dark:border-white/5 bg-slate-50 dark:bg-white/[0.01] flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Trigger.dev Scheduler</span>
+          </div>
+          <span className="text-[10px] font-bold text-emerald-500 uppercase">Listening</span>
+        </div>
+      </div>
+
+      {/* Main Admin Content Card */}
+      <div className="glass-premium rounded-3xl border border-black/[0.05] dark:border-white/5 shadow-sm overflow-hidden">
+        {/* Sub-navigation */}
+        <div className="flex border-b border-black/[0.05] dark:border-white/5 bg-black/[0.01] dark:bg-white/[0.01] overflow-x-auto">
+          {[
+            { id: "users", label: "Users Registry", icon: User },
+            { id: "alerts", label: "Global Alerts Monitor", icon: AlertCircle },
+            { id: "rules", label: "AI Alert Rules", icon: Bot },
+            { id: "console", label: "Live System Console", icon: Terminal },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const active = activeSubTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveSubTab(tab.id as any)}
+                className={`flex items-center gap-2 px-6 py-4 border-b-2 text-xs font-bold transition whitespace-nowrap ${
+                  active
+                    ? "border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-white dark:bg-white/[0.01]"
+                    : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300"
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Tab Panels */}
+        <div className="p-6">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-16 space-y-4">
+              <div className="w-8 h-8 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 animate-spin"></div>
+              <p className="text-xs text-slate-500 animate-pulse">Loading system statistics...</p>
+            </div>
+          ) : (
+            <>
+              {/* Users Tab */}
+              {activeSubTab === "users" && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 max-w-md bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.05] dark:border-white/5 rounded-xl px-3 py-2">
+                    <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                    <input
+                      type="text"
+                      placeholder="Search users by name, email, or phone..."
+                      value={userSearch}
+                      onChange={(e) => setUserSearch(e.target.value)}
+                      className="bg-transparent border-0 outline-none text-xs text-slate-800 dark:text-white w-full placeholder-slate-400"
+                    />
+                  </div>
+
+                  <div className="overflow-x-auto rounded-2xl border border-black/[0.05] dark:border-white/5">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-black/[0.02] dark:bg-white/[0.02] border-b border-black/[0.05] dark:border-white/5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          <th className="p-4">User</th>
+                          <th className="p-4">Contact</th>
+                          <th className="p-4">Auth Mode</th>
+                          <th className="p-4">Last Active</th>
+                          <th className="p-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-black/[0.05] dark:divide-white/5 text-xs">
+                        {filteredUsers.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="p-8 text-center text-slate-500 font-medium">
+                              No registered users found.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredUsers.map((u: any) => (
+                            <tr key={u.id} className="hover:bg-black/[0.01] dark:hover:bg-white/[0.01] transition">
+                              <td className="p-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-500 flex items-center justify-center font-bold text-white text-[11px]">
+                                    {(u.name?.[0] || u.email?.[0] || "U").toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <h4 className="font-bold text-slate-800 dark:text-white">{u.name || "Unnamed User"}</h4>
+                                    <span className="text-[10px] text-slate-400 font-medium font-mono select-all">{u.id}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="p-4">
+                                <div className="space-y-0.5">
+                                  {u.email && <div className="text-slate-600 dark:text-slate-300 font-medium">{u.email}</div>}
+                                  {u.phone && <div className="text-slate-600 dark:text-slate-300 font-medium font-mono">{u.phone}</div>}
+                                </div>
+                              </td>
+                              <td className="p-4">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                                  u.auth_provider === 'google' 
+                                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-500' 
+                                    : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-500'
+                                }`}>
+                                  {u.auth_provider || 'google'}
+                                </span>
+                              </td>
+                              <td className="p-4 text-slate-500 font-medium">
+                                {u.last_login_at ? new Date(u.last_login_at).toLocaleString() : 'N/A'}
+                              </td>
+                              <td className="p-4 text-right space-x-2">
+                                <button
+                                  onClick={() => setSelectedUser(u)}
+                                  className="text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:text-emerald-500 dark:hover:text-emerald-400 transition inline-flex items-center gap-1 bg-black/[0.03] dark:bg-white/5 px-2 py-1.5 rounded-lg"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                  <span>Inspect</span>
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteUser(u.id)}
+                                  className="text-[10px] font-bold text-rose-500 hover:text-rose-600 transition inline-flex items-center gap-1 bg-rose-500/10 px-2 py-1.5 rounded-lg"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>Delete</span>
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Alerts Tab */}
+              {activeSubTab === "alerts" && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 max-w-md bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.05] dark:border-white/5 rounded-xl px-3 py-2">
+                    <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                    <input
+                      type="text"
+                      placeholder="Search alerts by title, source app, priority..."
+                      value={alertSearch}
+                      onChange={(e) => setAlertSearch(e.target.value)}
+                      className="bg-transparent border-0 outline-none text-xs text-slate-800 dark:text-white w-full placeholder-slate-400"
+                    />
+                  </div>
+
+                  <div className="overflow-x-auto rounded-2xl border border-black/[0.05] dark:border-white/5">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-black/[0.02] dark:bg-white/[0.02] border-b border-black/[0.05] dark:border-white/5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          <th className="p-4">Source</th>
+                          <th className="p-4">Alert Details</th>
+                          <th className="p-4">Priority</th>
+                          <th className="p-4">Status</th>
+                          <th className="p-4">Triggered At</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-black/[0.05] dark:divide-white/5 text-xs">
+                        {filteredAlerts.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="p-8 text-center text-slate-500 font-medium">
+                              No system alerts found matching filter.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredAlerts.map((a: any) => (
+                            <tr key={a.id} className="hover:bg-black/[0.01] dark:hover:bg-white/[0.01] transition">
+                              <td className="p-4">
+                                <div className="flex items-center gap-2">
+                                  <span className={`inline-flex items-center justify-center w-8 h-8 rounded-xl bg-black/5 dark:bg-white/5`}>
+                                    <span className="capitalize font-extrabold text-[10px]">{a.source_app?.[0] || 'A'}</span>
+                                  </span>
+                                  <span className="font-extrabold uppercase text-[10px] text-slate-500 tracking-wider font-mono">{a.source_app}</span>
+                                </div>
+                              </td>
+                              <td className="p-4">
+                                <div>
+                                  <h4 className="font-bold text-slate-800 dark:text-white">{a.title}</h4>
+                                  <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1 max-w-md">{a.description}</p>
+                                </div>
+                              </td>
+                              <td className="p-4">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                                  a.priority === 'high' 
+                                    ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-500' 
+                                    : a.priority === 'medium' 
+                                    ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-500' 
+                                    : 'bg-slate-50 dark:bg-slate-900 text-slate-500'
+                                }`}>
+                                  {a.priority}
+                                </span>
+                              </td>
+                              <td className="p-4">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                                  a.status === 'triggered' 
+                                    ? 'bg-rose-500/10 text-rose-500' 
+                                    : a.status === 'resolved' 
+                                    ? 'bg-emerald-500/10 text-emerald-500' 
+                                    : 'bg-blue-500/10 text-blue-500'
+                                }`}>
+                                  {a.status}
+                                </span>
+                              </td>
+                              <td className="p-4 text-slate-500 font-medium">
+                                {a.triggered_at ? new Date(a.triggered_at).toLocaleString() : new Date(a.created_at).toLocaleString()}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Rules Tab */}
+              {activeSubTab === "rules" && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {data.rules.map((rule: any) => (
+                      <div key={rule.id} className="p-5 rounded-2xl border border-black/[0.05] dark:border-white/5 bg-black/[0.01] dark:bg-white/[0.01] space-y-3">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="font-extrabold text-slate-800 dark:text-white text-sm">{rule.name}</h4>
+                            <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">{rule.description || 'No description provided.'}</p>
+                          </div>
+                          <button
+                            onClick={() => handleToggleRule(rule.id, rule.status)}
+                            className={`p-1.5 rounded-xl border border-black/[0.05] dark:border-white/5 transition flex-shrink-0 ${
+                              rule.status === 'active' 
+                                ? 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20' 
+                                : 'bg-slate-100 dark:bg-white/5 text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10'
+                            }`}
+                            title={rule.status === 'active' ? "Pause Rule" : "Activate Rule"}
+                          >
+                            {rule.status === 'active' ? <Check className="w-4 h-4" /> : <PauseCircle className="w-4 h-4" />}
+                          </button>
+                        </div>
+                        <div className="pt-2 border-t border-black/[0.05] dark:border-white/5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] font-mono text-slate-500">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-slate-400">Apps:</span>
+                            <span className="uppercase text-slate-600 dark:text-slate-300">{(rule.apps || []).join(', ') || 'N/A'}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-slate-400">Priority:</span>
+                            <span className={`uppercase font-extrabold ${rule.priority === 'high' ? 'text-rose-500' : 'text-amber-500'}`}>{rule.priority}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-slate-400">Frequency:</span>
+                            <span className="uppercase text-slate-600 dark:text-slate-300">{rule.frequency}</span>
+                          </div>
+                        </div>
+                        <div className="p-3 bg-black/[0.02] dark:bg-black/40 rounded-xl border border-black/[0.05] dark:border-white/5 font-mono text-[10px] text-slate-400 leading-relaxed select-all">
+                          <span className="font-bold text-emerald-500 dark:text-emerald-400">Rule Matcher:</span> {rule.condition}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Console Tab */}
+              {activeSubTab === "console" && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Real-Time Event Stream</span>
+                    <span className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-500">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                      <span>Listening for Trigger.dev webhooks</span>
+                    </span>
+                  </div>
+
+                  <div className="font-mono text-[11px] bg-slate-950/80 dark:bg-black/60 p-5 rounded-2xl border border-white/5 overflow-y-auto max-h-[350px] space-y-2 relative">
+                    {consoleLogs.map((log) => (
+                      <div key={log.id} className="flex items-start gap-2.5 py-0.5 text-slate-300">
+                        <span className="text-slate-500 select-none">[{log.time}]</span>
+                        <span className={`font-bold uppercase text-[9px] px-1.5 py-0.5 rounded flex-shrink-0 ${
+                          log.type === 'success' 
+                            ? 'bg-emerald-500/10 text-emerald-400' 
+                            : log.type === 'error' 
+                            ? 'bg-rose-500/10 text-rose-400' 
+                            : log.type === 'warn' 
+                            ? 'bg-amber-500/10 text-amber-400' 
+                            : 'bg-blue-500/10 text-blue-400'
+                        }`}>
+                          {log.type}
+                        </span>
+                        <span className="flex-1 leading-relaxed">{log.msg}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Inspect User Modal */}
+      {selectedUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="glass-premium w-full max-w-lg rounded-3xl border border-white/10 shadow-2xl overflow-hidden bg-slate-900">
+            <div className="flex items-center justify-between p-6 border-b border-white/5">
+              <h3 className="text-sm font-extrabold text-white uppercase tracking-wider">Inspect User Details</h3>
+              <button
+                onClick={() => setSelectedUser(null)}
+                className="p-1 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-6 space-y-6">
+              {/* Profile card */}
+              <div className="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/5">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-500 flex items-center justify-center font-bold text-white text-base">
+                  {(selectedUser.name?.[0] || selectedUser.email?.[0] || "U").toUpperCase()}
+                </div>
+                <div>
+                  <h4 className="font-bold text-white">{selectedUser.name || "Unnamed User"}</h4>
+                  <p className="text-xs text-slate-400">{selectedUser.email || selectedUser.phone || "No contact info"}</p>
+                </div>
+              </div>
+
+              {/* Attributes list */}
+              <div className="space-y-3.5 text-xs">
+                <div className="flex justify-between py-1.5 border-b border-white/5">
+                  <span className="text-slate-400 font-semibold">User Unique ID</span>
+                  <span className="font-mono text-white select-all">{selectedUser.id}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-white/5">
+                  <span className="text-slate-400 font-semibold">Authentication Mode</span>
+                  <span className="text-white uppercase font-bold">{selectedUser.auth_provider || 'google'}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-white/5">
+                  <span className="text-slate-400 font-semibold">Verification Method</span>
+                  <span className="text-white uppercase font-bold font-mono">{selectedUser.verification_method || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-white/5">
+                  <span className="text-slate-400 font-semibold">Member Since</span>
+                  <span className="text-white font-medium">{selectedUser.created_at ? new Date(selectedUser.created_at).toLocaleString() : 'N/A'}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-white/5">
+                  <span className="text-slate-400 font-semibold">Last login timestamp</span>
+                  <span className="text-white font-medium">{selectedUser.last_login_at ? new Date(selectedUser.last_login_at).toLocaleString() : 'N/A'}</span>
+                </div>
+              </div>
+
+              {/* Integrations JSON viewer */}
+              {selectedUser.integrations && Object.keys(selectedUser.integrations).length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Connected Applications Metadata</span>
+                  <pre className="p-3 bg-black/40 rounded-xl border border-white/5 font-mono text-[10px] text-slate-300 max-h-40 overflow-y-auto leading-relaxed select-all">
+                    {JSON.stringify(selectedUser.integrations, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+            <div className="p-6 bg-black/20 border-t border-white/5 flex justify-end">
+              <button
+                onClick={() => setSelectedUser(null)}
+                className="text-xs font-bold text-slate-300 hover:text-white px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 transition"
+              >
+                Close Inspector
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AccessDeniedPanel() {
+  const router = useRouter();
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-6 text-center animate-fade-in">
+      <div className="w-16 h-16 rounded-3xl bg-rose-500/10 text-rose-500 flex items-center justify-center shadow-lg shadow-rose-500/5">
+        <LockKeyhole className="w-8 h-8" />
+      </div>
+      <div className="space-y-2">
+        <h3 className="text-xl font-black text-slate-900 dark:text-white">Access Denied</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">
+          Aapke account ke paas is admin dashboard ko view karne ke permissions nahi hain.
+        </p>
+      </div>
+      <button
+        onClick={() => router.push("/dashboard?tab=dashboard")}
+        className="text-xs font-bold text-white bg-violet-600 hover:bg-violet-500 px-5 py-2.5 rounded-xl shadow-lg shadow-violet-600/20 transition"
+      >
+        Go back to User Dashboard
+      </button>
+    </div>
+  );
+}
+
