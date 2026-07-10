@@ -36,6 +36,13 @@ export default function SignUp() {
     setLoading(true);
     setError(null);
 
+    const normalizedEmail = email.trim().toLowerCase();
+    if (normalizedEmail === "admin@alyla.ai" || normalizedEmail === "admin" || normalizedEmail.includes("admin")) {
+      setError("Admin account registration is disabled from the frontend.");
+      setLoading(false);
+      return;
+    }
+
     try {
       const { data, error: signUpError } = await insforge.auth.signUp({
         email,
