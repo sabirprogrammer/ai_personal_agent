@@ -89,7 +89,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Otherwise check InsForge auth session
       const { data, error } = await insforge.auth.getCurrentUser();
       if (error) {
-        console.error("Error getting current user:", error);
+        if (error.message && !error.message.includes("No refresh token")) {
+          console.error("Error getting current user:", error);
+        }
         setUser(null);
       } else if (data?.user) {
         await syncUserToDatabase(data.user);
