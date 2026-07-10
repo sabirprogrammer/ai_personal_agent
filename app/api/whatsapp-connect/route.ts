@@ -89,33 +89,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "connect-simulated") {
-      const { data: dbUser } = await insforge.database
-        .from("users")
-        .select("integrations")
-        .eq("id", userId)
-        .maybeSingle();
-
-      const currentIntegrations = dbUser?.integrations || {};
-      const updatedIntegrations = {
-        ...currentIntegrations,
-        whatsapp: {
-          connected: true,
-          phoneNumber: phoneNumber || "+15550199",
-          isSimulated: true,
-          connectedAt: new Date().toISOString()
-        }
-      };
-
-      await insforge.database
-        .from("users")
-        .update({ integrations: updatedIntegrations })
-        .eq("id", userId);
-
       return NextResponse.json({
-        success: true,
-        status: "connected",
-        isSimulated: true
-      });
+        error: "Simulated mock connections are disabled in production. Please use a real WhatsApp QR/Pairing connection."
+      }, { status: 400 });
     }
 
     return NextResponse.json({ error: "Invalid action." }, { status: 400 });

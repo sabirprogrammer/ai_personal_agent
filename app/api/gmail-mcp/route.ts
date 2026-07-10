@@ -208,270 +208,63 @@ export async function POST(req: NextRequest) {
       return null;
     });
 
-    if (token) {
-      // -------------------------------------------------------------
-      // REAL GMAIL CONNECTION PATH (Google API Calls)
-      // -------------------------------------------------------------
-      try {
-        switch (method) {
-          case "gmail_list_messages": {
-            const q = params?.q || "label:inbox";
-            const maxResults = params?.maxResults || 10;
+    if (!token) {
+      return NextResponse.json({
+        jsonrpc: "2.0",
+        error: { code: -32002, message: "Google Gmail account is not connected. Please connect Gmail under Settings -> Integrations." },
+        id
+      }, { status: 400 });
+    }
 
-            const listData = await fetchGoogleAPI(
-              `messages?q=${encodeURIComponent(q)}&maxResults=${maxResults}`,
-              token
-            );
-            const messages = listData.messages || [];
-
-            // Fetch headers for each message in parallel
-            const detailedMessages = await Promise.all(
-              messages.map(async (msg: any) => {
-                try {
-                  const detail = await fetchGoogleAPI(
-                    `messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
-                    token
-                  );
-                  const headers = detail.payload?.headers || [];
-                  const from = headers.find((h: any) => h.name.toLowerCase() === "from")?.value || "Unknown Sender";
-                  const subject = headers.find((h: any) => h.name.toLowerCase() === "subject")?.value || "No Subject";
-                  const date = headers.find((h: any) => h.name.toLowerCase() === "date")?.value || detail.internalDate;
-
-                  return {
-                    id: detail.id,
-                    threadId: detail.threadId,
-                    from,
-                    subject,
-                    date: new Date(isNaN(Number(date)) ? date : Number(date)).toISOString(),
-                    snippet: detail.snippet,
-                    labels: detail.labelIds || []
-                  };
-                } catch (e) {
-                  return null;
-                }
-              })
-            );
-
-            result = {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    messages: detailedMessages.filter(Boolean)
-                  }, null, 2)
-                }
-              ]
-            };
-            break;
-          }
-
-          case "gmail_get_message": {
-            const messageId = params?.id;
-            const detail = await fetchGoogleAPI(`messages/${messageId}?format=full`, token);
-            
-            const headers = detail.payload?.headers || [];
-            const from = headers.find((h: any) => h.name.toLowerCase() === "from")?.value || "Unknown Sender";
-            const toHeader = headers.find((h: any) => h.name.toLowerCase() === "to")?.value || "";
-            const subject = headers.find((h: any) => h.name.toLowerCase() === "subject")?.value || "No Subject";
-            const date = headers.find((h: any) => h.name.toLowerCase() === "date")?.value || detail.internalDate;
-
-            const parsedEmail = {
-              id: detail.id,
-              threadId: detail.threadId,
-              from,
-              to: toHeader,
-              subject,
-              date: new Date(isNaN(Number(date)) ? date : Number(date)).toISOString(),
-              snippet: detail.snippet,
-              body: extractBody(detail.payload) || detail.snippet,
-              labels: detail.labelIds || []
-            };
-
-            result = {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify(parsedEmail, null, 2)
-                }
-              ]
-            };
-            break;
-          }
-
-          case "gmail_search_messages": {
-            const q = params?.q || "";
-            const maxResults = params?.maxResults || 10;
-
-            const listData = await fetchGoogleAPI(
-              `messages?q=${encodeURIComponent(q)}&maxResults=${maxResults}`,
-              token
-            );
-            const messages = listData.messages || [];
-
-            const detailedMessages = await Promise.all(
-              messages.map(async (msg: any) => {
-                try {
-                  const detail = await fetchGoogleAPI(
-                    `messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
-                    token
-                  );
-                  const headers = detail.payload?.headers || [];
-                  const from = headers.find((h: any) => h.name.toLowerCase() === "from")?.value || "Unknown Sender";
-                  const subject = headers.find((h: any) => h.name.toLowerCase() === "subject")?.value || "No Subject";
-                  const date = headers.find((h: any) => h.name.toLowerCase() === "date")?.value || detail.internalDate;
-
-                  return {
-                    id: detail.id,
-                    threadId: detail.threadId,
-                    from,
-                    subject,
-                    date: new Date(isNaN(Number(date)) ? date : Number(date)).toISOString(),
-                    snippet: detail.snippet,
-                    labels: detail.labelIds || []
-                  };
-                } catch (e) {
-                  return null;
-                }
-              })
-            );
-
-            result = {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    messages: detailedMessages.filter(Boolean)
-                  }, null, 2)
-                }
-              ]
-            };
-            break;
-          }
-
-          case "gmail_send_message": {
-            const { to, subject, body } = params || {};
-            
-            // Construct standard RFC 2822 email payload
-            const rawMessage = [
-              `To: ${to}`,
-              `Subject: ${subject}`,
-              `Content-Type: text/plain; charset=utf-8`,
-              `MIME-Version: 1.0`,
-              ``,
-              body
-            ].join("\r\n");
-
-            // Base64url encode raw email message
-            const encoded = Buffer.from(rawMessage).toString("base64")
-              .replace(/\+/g, "-")
-              .replace(/\//g, "_")
-              .replace(/=+$/, "");
-
-            const sendData = await fetchGoogleAPI("messages/send", token, "POST", {
-              raw: encoded
-            });
-
-            result = {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    success: true,
-                    message: "Email sent successfully via Gmail API",
-                    messageId: sendData.id,
-                    threadId: sendData.threadId
-                  }, null, 2)
-                }
-              ]
-            };
-            break;
-          }
-
-          case "gmail_create_draft": {
-            const { to, subject, body } = params || {};
-            const rawMessage = [
-              `To: ${to}`,
-              `Subject: ${subject}`,
-              `Content-Type: text/plain; charset=utf-8`,
-              `MIME-Version: 1.0`,
-              ``,
-              body
-            ].join("\r\n");
-
-            const encoded = Buffer.from(rawMessage).toString("base64")
-              .replace(/\+/g, "-")
-              .replace(/\//g, "_")
-              .replace(/=+$/, "");
-
-            const draftData = await fetchGoogleAPI("drafts", token, "POST", {
-              message: { raw: encoded }
-            });
-
-            result = {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    success: true,
-                    message: "Draft created successfully via Gmail API",
-                    draft: draftData
-                  }, null, 2)
-                }
-              ]
-            };
-            break;
-          }
-
-          case "gmail_get_thread": {
-            const threadId = params?.id;
-            const threadData = await fetchGoogleAPI(`threads/${threadId}`, token);
-            result = {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify(threadData, null, 2)
-                }
-              ]
-            };
-            break;
-          }
-
-          default:
-            error = { code: -32601, message: `Method not found: ${method}` };
-        }
-      } catch (apiErr: any) {
-        console.error("Live Gmail API call failed:", apiErr);
-        error = { code: -32603, message: apiErr.message || "Google API request failed." };
-      }
-
-    } else {
-      // -------------------------------------------------------------
-      // SIMULATED MOCK CONNECTION PATH
-      // -------------------------------------------------------------
+    // -------------------------------------------------------------
+    // REAL GMAIL CONNECTION PATH (Google API Calls)
+    // -------------------------------------------------------------
+    try {
       switch (method) {
         case "gmail_list_messages": {
-          const query = params?.q || "label:inbox";
+          const q = params?.q || "label:inbox";
           const maxResults = params?.maxResults || 10;
-          
-          let filtered = [...MOCK_EMAILS, ...simulatedSent];
-          if (query.includes("label:inbox")) {
-            filtered = filtered.filter(e => e.labels.includes("INBOX"));
-          }
+
+          const listData = await fetchGoogleAPI(
+            `messages?q=${encodeURIComponent(q)}&maxResults=${maxResults}`,
+            token
+          );
+          const messages = listData.messages || [];
+
+          // Fetch headers for each message in parallel
+          const detailedMessages = await Promise.all(
+            messages.map(async (msg: any) => {
+              try {
+                const detail = await fetchGoogleAPI(
+                  `messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+                  token
+                );
+                const headers = detail.payload?.headers || [];
+                const from = headers.find((h: any) => h.name.toLowerCase() === "from")?.value || "Unknown Sender";
+                const subject = headers.find((h: any) => h.name.toLowerCase() === "subject")?.value || "No Subject";
+                const date = headers.find((h: any) => h.name.toLowerCase() === "date")?.value || detail.internalDate;
+
+                return {
+                  id: detail.id,
+                  threadId: detail.threadId,
+                  from,
+                  subject,
+                  date: new Date(isNaN(Number(date)) ? date : Number(date)).toISOString(),
+                  snippet: detail.snippet,
+                  labels: detail.labelIds || []
+                };
+              } catch (e) {
+                return null;
+              }
+            })
+          );
 
           result = {
             content: [
               {
                 type: "text",
                 text: JSON.stringify({
-                  messages: filtered.slice(0, maxResults).map(e => ({
-                    id: e.id,
-                    threadId: e.threadId,
-                    from: e.from,
-                    subject: e.subject,
-                    date: e.date,
-                    snippet: e.snippet,
-                    labels: e.labels
-                  }))
+                  messages: detailedMessages.filter(Boolean)
                 }, null, 2)
               }
             ]
@@ -481,31 +274,90 @@ export async function POST(req: NextRequest) {
 
         case "gmail_get_message": {
           const messageId = params?.id;
-          const email = [...MOCK_EMAILS, ...simulatedDrafts, ...simulatedSent].find(e => e.id === messageId);
-
-          if (!email) {
-            error = { code: -32602, message: `Message with ID ${messageId} not found` };
-          } else {
-            result = {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify(email, null, 2)
-                }
-              ]
-            };
+          if (!messageId) {
+            error = { code: -32602, message: "Message ID is required." };
+            break;
           }
+
+          const detail = await fetchGoogleAPI(`messages/${messageId}`, token);
+          
+          // Parse subject, from, body
+          const headers = detail.payload?.headers || [];
+          const from = headers.find((h: any) => h.name.toLowerCase() === "from")?.value || "Unknown Sender";
+          const to = headers.find((h: any) => h.name.toLowerCase() === "to")?.value || "Unknown Recipient";
+          const subject = headers.find((h: any) => h.name.toLowerCase() === "subject")?.value || "No Subject";
+          const date = headers.find((h: any) => h.name.toLowerCase() === "date")?.value || detail.internalDate;
+
+          let body = "";
+          if (detail.payload?.body?.data) {
+            body = Buffer.from(detail.payload.body.data, "base64").toString("utf-8");
+          } else if (detail.payload?.parts) {
+            // Traverse parts to find text/plain
+            const textPart = detail.payload.parts.find((p: any) => p.mimeType === "text/plain");
+            if (textPart?.body?.data) {
+              body = Buffer.from(textPart.body.data, "base64").toString("utf-8");
+            } else {
+              const htmlPart = detail.payload.parts.find((p: any) => p.mimeType === "text/html");
+              if (htmlPart?.body?.data) {
+                body = Buffer.from(htmlPart.body.data, "base64").toString("utf-8");
+              }
+            }
+          }
+
+          result = {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  id: detail.id,
+                  threadId: detail.threadId,
+                  from,
+                  to,
+                  subject,
+                  date: new Date(isNaN(Number(date)) ? date : Number(date)).toISOString(),
+                  snippet: detail.snippet,
+                  body,
+                  labels: detail.labelIds || []
+                }, null, 2)
+              }
+            ]
+          };
           break;
         }
 
         case "gmail_search_messages": {
           const query = params?.q || "";
-          const lowerQuery = query.toLowerCase();
+          const listData = await fetchGoogleAPI(
+            `messages?q=${encodeURIComponent(query)}&maxResults=20`,
+            token
+          );
+          const messages = listData.messages || [];
 
-          const filtered = [...MOCK_EMAILS, ...simulatedSent].filter(e => 
-            e.subject.toLowerCase().includes(lowerQuery) || 
-            e.from.toLowerCase().includes(lowerQuery) || 
-            e.body.toLowerCase().includes(lowerQuery)
+          const detailedMessages = await Promise.all(
+            messages.map(async (msg: any) => {
+              try {
+                const detail = await fetchGoogleAPI(
+                  `messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+                  token
+                );
+                const headers = detail.payload?.headers || [];
+                const from = headers.find((h: any) => h.name.toLowerCase() === "from")?.value || "Unknown Sender";
+                const subject = headers.find((h: any) => h.name.toLowerCase() === "subject")?.value || "No Subject";
+                const date = headers.find((h: any) => h.name.toLowerCase() === "date")?.value || detail.internalDate;
+
+                return {
+                  id: detail.id,
+                  threadId: detail.threadId,
+                  from,
+                  subject,
+                  date: new Date(isNaN(Number(date)) ? date : Number(date)).toISOString(),
+                  snippet: detail.snippet,
+                  labels: detail.labelIds || []
+                };
+              } catch (e) {
+                return null;
+              }
+            })
           );
 
           result = {
@@ -513,15 +365,7 @@ export async function POST(req: NextRequest) {
               {
                 type: "text",
                 text: JSON.stringify({
-                  messages: filtered.map(e => ({
-                    id: e.id,
-                    threadId: e.threadId,
-                    from: e.from,
-                    subject: e.subject,
-                    date: e.date,
-                    snippet: e.snippet,
-                    labels: e.labels
-                  }))
+                  messages: detailedMessages.filter(Boolean)
                 }, null, 2)
               }
             ]
@@ -531,20 +375,28 @@ export async function POST(req: NextRequest) {
 
         case "gmail_send_message": {
           const { to, subject, body } = params || {};
-          const sentId = `msg_${Math.random().toString(36).substring(2, 9)}`;
-          const newSent = {
-            id: sentId,
-            threadId: `thread_${Math.random().toString(36).substring(2, 9)}`,
-            from: "Rahul <rahul@alyla.ai>",
-            to,
-            subject,
-            date: new Date().toISOString(),
-            snippet: body.substring(0, 100) + "...",
-            body: body,
-            labels: ["SENT", "INBOX"]
-          };
+          if (!to || !subject || !body) {
+            error = { code: -32602, message: "to, subject, and body parameters are required." };
+            break;
+          }
 
-          simulatedSent.push(newSent);
+          // Build RFC 2822 email format
+          const rawEmail = [
+            `To: ${to}`,
+            "Content-Type: text/plain; charset=utf-8",
+            "MIME-Version: 1.0",
+            `Subject: =?utf-8?B?${Buffer.from(subject).toString("base64")}?=`,
+            "",
+            body
+          ].join("\r\n");
+
+          const base64SafeEmail = Buffer.from(rawEmail)
+            .toString("base64")
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, "");
+
+          const sendData = await fetchGoogleAPI("messages/send", token, "POST", { raw: base64SafeEmail });
 
           result = {
             content: [
@@ -552,9 +404,9 @@ export async function POST(req: NextRequest) {
                 type: "text",
                 text: JSON.stringify({
                   success: true,
-                  message: "Email sent successfully (Simulated)",
-                  messageId: sentId,
-                  threadId: newSent.threadId
+                  message: "Email sent successfully via Gmail API.",
+                  messageId: sendData.id,
+                  threadId: sendData.threadId
                 }, null, 2)
               }
             ]
@@ -564,20 +416,40 @@ export async function POST(req: NextRequest) {
 
         case "gmail_create_draft": {
           const { to, subject, body, threadId } = params || {};
-          const draftId = `draft_${Math.random().toString(36).substring(2, 9)}`;
-          const newDraft = {
-            id: draftId,
-            threadId: threadId || `thread_${Math.random().toString(36).substring(2, 9)}`,
-            from: "Rahul <rahul@alyla.ai>",
-            to,
-            subject,
-            date: new Date().toISOString(),
-            snippet: body.substring(0, 100) + "...",
-            body: body,
-            labels: ["DRAFT"]
-          };
+          if (!to || !subject || !body) {
+            error = { code: -32602, message: "to, subject, and body parameters are required." };
+            break;
+          }
 
-          simulatedDrafts.push(newDraft);
+          // Build RFC 2822 email format
+          const headers = [
+            `To: ${to}`,
+            "Content-Type: text/plain; charset=utf-8",
+            "MIME-Version: 1.0",
+            `Subject: =?utf-8?B?${Buffer.from(subject).toString("base64")}?=`
+          ];
+          if (threadId) {
+            headers.push(`Thread-Id: ${threadId}`);
+          }
+          headers.push("", body);
+
+          const rawEmail = headers.join("\r\n");
+          const base64SafeEmail = Buffer.from(rawEmail)
+            .toString("base64")
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, "");
+
+          const draftBody: any = {
+            message: {
+              raw: base64SafeEmail
+            }
+          };
+          if (threadId) {
+            draftBody.message.threadId = threadId;
+          }
+
+          const draftData = await fetchGoogleAPI("drafts", token, "POST", draftBody);
 
           result = {
             content: [
@@ -585,14 +457,8 @@ export async function POST(req: NextRequest) {
                 type: "text",
                 text: JSON.stringify({
                   success: true,
-                  message: "Draft created successfully (Simulated)",
-                  draft: {
-                    id: draftId,
-                    message: {
-                      id: draftId,
-                      threadId: newDraft.threadId
-                    }
-                  }
+                  message: "Draft created successfully via Gmail API.",
+                  draft: draftData
                 }, null, 2)
               }
             ]
@@ -602,16 +468,17 @@ export async function POST(req: NextRequest) {
 
         case "gmail_get_thread": {
           const threadId = params?.id;
-          const threadEmails = [...MOCK_EMAILS, ...simulatedSent, ...simulatedDrafts].filter(e => e.threadId === threadId);
+          if (!threadId) {
+            error = { code: -32602, message: "Thread ID is required." };
+            break;
+          }
 
+          const threadData = await fetchGoogleAPI(`threads/${threadId}`, token);
           result = {
             content: [
               {
                 type: "text",
-                text: JSON.stringify({
-                  id: threadId,
-                  messages: threadEmails
-                }, null, 2)
+                text: JSON.stringify(threadData, null, 2)
               }
             ]
           };
@@ -621,6 +488,9 @@ export async function POST(req: NextRequest) {
         default:
           error = { code: -32601, message: `Method not found: ${method}` };
       }
+    } catch (apiErr: any) {
+      console.error("Live Gmail API call failed:", apiErr);
+      error = { code: -32603, message: apiErr.message || "Google API request failed." };
     }
 
     const responseFrame = error 

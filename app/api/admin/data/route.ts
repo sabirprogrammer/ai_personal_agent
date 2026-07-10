@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { hasInsforgeAdminKey, insforgeAdmin } from "@/lib/insforge-admin";
-import { loadMockDB } from "@/lib/mock-db-store";
 import { verifyToken } from "@/lib/admin-auth";
 
 // Static mock users as a fallback when database is empty or not using Admin Key
@@ -45,71 +44,55 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Unauthorized access" }, { status: 401 });
     }
 
-    let users = MOCK_USERS;
+    let users: any[] = [];
     let alerts: any[] = [];
     let rules: any[] = [];
 
     // 1. Fetch Users
     if (hasInsforgeAdminKey) {
-      try {
-        const { data: dbUsers, error: usersErr } = await insforgeAdmin.database
-          .from("users")
-          .select("*")
-          .order("created_at", { ascending: false });
-        
-        if (!usersErr && dbUsers && dbUsers.length > 0) {
-          users = dbUsers;
-        }
-      } catch (err) {
-        console.error("Admin API failed to load users:", err);
+      const { data: dbUsers, error: usersErr } = await insforgeAdmin.database
+        .from("users")
+        .select("*")
+        .order("created_at", { ascending: false });
+      
+      if (usersErr) {
+        console.error("Admin API failed to load users:", usersErr);
+      } else if (dbUsers) {
+        users = dbUsers;
       }
     }
 
     // 2. Fetch Alerts
     if (hasInsforgeAdminKey) {
-      try {
-        const { data: dbAlerts, error: alertsErr } = await insforgeAdmin.database
-          .from("alerts")
-          .select("*")
-          .order("created_at", { ascending: false });
-        
-        if (!alertsErr && dbAlerts) {
-          alerts = dbAlerts;
-        }
-      } catch (err) {
-        console.error("Admin API failed to load alerts:", err);
+      const { data: dbAlerts, error: alertsErr } = await insforgeAdmin.database
+        .from("alerts")
+        .select("*")
+        .order("created_at", { ascending: false });
+      
+      if (alertsErr) {
+        console.error("Admin API failed to load alerts:", alertsErr);
+      } else if (dbAlerts) {
+        alerts = dbAlerts;
       }
-    }
-    
-    // Fallback to mock alerts if database search is empty or failed
-    if (alerts.length === 0) {
-      alerts = loadMockDB().alerts || [];
     }
 
     // 3. Fetch Alert Rules
     if (hasInsforgeAdminKey) {
-      try {
-        const { data: dbRules, error: rulesErr } = await insforgeAdmin.database
-          .from("alert_rules")
-          .select("*")
-          .order("created_at", { ascending: false });
-        
-        if (!rulesErr && dbRules) {
-          rules = dbRules;
-        }
-      } catch (err) {
-        console.error("Admin API failed to load alert rules:", err);
+      const { data: dbRules, error: rulesErr } = await insforgeAdmin.database
+        .from("alert_rules")
+        .select("*")
+        .order("created_at", { ascending: false });
+      
+      if (rulesErr) {
+        console.error("Admin API failed to load alert rules:", rulesErr);
+      } else if (dbRules) {
+        rules = dbRules;
       }
-    }
-    
-    // Fallback to mock rules if database search is empty or failed
-    if (rules.length === 0) {
-      rules = loadMockDB().rules || [];
     }
 
     // 4. System Status Info
     const systemStatus = {
-      insforgeConnected: true,
+      insforgeConnected: hasInsforgeAdminKey,
       insforgeMode: hasInsforgeAdminKey ? "Production (Admin Key Active)" : "Simulated Sandbox Mode",
       geminiConnected: !!process.env.GEMINI_API_KEY,
       triggerDevConnected: true,
@@ -128,9 +111,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: false,
       error: err instanceof Error ? err.message : "Internal Server Error",
-      users: MOCK_USERS,
-      alerts: loadMockDB().alerts || [],
-      rules: loadMockDB().rules || [],
+      users: [],
+      alerts: [],
+      rules: [],
       systemStatus: {
         insforgeConnected: false,
         insforgeMode: "Error / Fallback",

@@ -125,24 +125,6 @@ function buildDeterministicSuggestions(apps: string[], summary: Awaited<ReturnTy
 
 export async function GET(req: NextRequest) {
   try {
-    if (!hasInsforgeAdminKey) {
-      return NextResponse.json([
-        {
-          title: "Urgent Client NDA Flag",
-          description: "Create alert rule for 'NDA' in Gmail to automatically identify legal agreements.",
-          apps: ["gmail"],
-          condition: "body contains 'NDA'",
-          priority: "high"
-        },
-        {
-          title: "Alex Roadmap Coffee",
-          description: "Alert me when Alex suggests roadmap sync meetings in WhatsApp.",
-          apps: ["whatsapp"],
-          condition: "body contains 'roadmap' or 'coffee'",
-          priority: "medium"
-        }
-      ]);
-    }
 
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get("userId");

@@ -85,7 +85,7 @@ export default function AdminDashboardPage() {
         const res = await fetch("/api/admin/data");
         if (res.status === 401) {
           // Unauthorized, redirect to login page
-          router.push("/admin/login");
+          router.push("/sign-in");
           return;
         }
         const json = await res.json();
@@ -169,7 +169,7 @@ export default function AdminDashboardPage() {
     try {
       const res = await fetch("/api/admin/logout", { method: "POST" });
       if (res.ok) {
-        router.push("/admin/login");
+        router.push("/sign-in");
         router.refresh();
       }
     } catch (err) {

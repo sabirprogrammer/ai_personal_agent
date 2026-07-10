@@ -224,38 +224,27 @@ CRITICAL FOR SPEED AND USER EXPERIENCE:
       }
     }
 
-    // 6. Fallback Mock Data (High-fidelity previews representing connected state)
-    const customMockData = JSON.parse(JSON.stringify(MOCK_BRIEF_DATA));
-    
-    if (isGmailConnected || isWhatsAppConnected) {
-      if (!isGmailConnected) {
-        customMockData.brief = customMockData.brief.filter((b: any) => b.app !== "gmail");
-        customMockData.priorityItems = customMockData.priorityItems.filter((p: any) => p.app !== "gmail");
-      }
-      if (!isWhatsAppConnected) {
-        customMockData.brief = customMockData.brief.filter((b: any) => b.app !== "whatsapp");
-        customMockData.priorityItems = customMockData.priorityItems.filter((p: any) => p.app !== "whatsapp");
-      }
-      
-      customMockData.stats.importantCount = customMockData.brief.length + customMockData.priorityItems.length;
-      customMockData.stats.priorityCount = customMockData.priorityItems.filter((p: any) => p.priority === "High").length;
-      customMockData.stats.followUpCount = customMockData.brief.filter((b: any) => b.action.toLowerCase().includes("check") || b.action.toLowerCase().includes("sync")).length;
-    }
-
-    const savedBriefData = {
-      ...customMockData,
+    // 6. Production Fallback (Clean empty state representing setup warning)
+    const productionFallbackData = {
+      brief: [],
+      priorityItems: [],
+      stats: {
+        importantCount: 0,
+        priorityCount: 0,
+        followUpCount: 0
+      },
       generatedAt: new Date().toISOString(),
-      isSimulated: true,
-      warn: !hasApiKey ? "GEMINI_API_KEY env var missing. Running in simulated fallback mode." : undefined
+      isSimulated: false,
+      warn: !hasApiKey ? "GEMINI_API_KEY environment variable is not configured. Please add GEMINI_API_KEY to your .env.local file to generate live AI briefings." : "Live briefing generation failed."
     };
 
-    // Save mock configuration/preview to database so we don't query it repeatedly
+    // Save empty configuration/warning state to database so we don't query it repeatedly
     await insforge.database
       .from("users")
-      .update({ dashboard_brief: savedBriefData })
+      .update({ dashboard_brief: productionFallbackData })
       .eq("id", userId);
 
-    return NextResponse.json(savedBriefData);
+    return NextResponse.json(productionFallbackData);
 
   } catch (err: any) {
     console.error("Error in dashboard-brief API:", err);

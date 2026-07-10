@@ -70,315 +70,44 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    const isSimulated = whatsapp.isSimulated;
+    if (whatsapp.isSimulated) {
+      return NextResponse.json({
+        jsonrpc: "2.0",
+        error: { code: -32003, message: "Simulated mock connections are disabled in production. Please connect your real WhatsApp account under Settings -> Integrations." },
+        id
+      }, { status: 400 });
+    }
+
     let result: any = null;
     let error: any = null;
 
-    if (isSimulated) {
-      // -------------------------------------------------------------
-      // SIMULATED MOCK CONNECTION PATH
-      // -------------------------------------------------------------
-      switch (method) {
-        case "whatsapp_get_recent_messages": {
-          const allMsgs: any[] = [];
-          Object.entries(simulatedMessages).forEach(([jid, msgs]) => {
-            if (msgs.length > 0) {
-              const lastMsg = msgs[msgs.length - 1];
-              const contact = MOCK_CONTACTS[jid] || { id: jid, name: jid };
-              allMsgs.push({
-                chatId: jid,
-                chatName: contact.name,
-                from: lastMsg.pushName,
-                body: lastMsg.message?.conversation || "",
-                timestamp: new Date(lastMsg.messageTimestamp * 1000).toISOString(),
-                fromMe: lastMsg.key.fromMe
-              });
-            }
-          });
-          // Sort by timestamp desc
-          allMsgs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    // -------------------------------------------------------------
+    // REAL GMAIL/WHATSAPP CONNECTION PATH (Baileys Client API Calls)
+    // -------------------------------------------------------------
+    let session = getWhatsAppSession(userId);
 
-          result = {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({ messages: allMsgs }, null, 2)
-              }
-            ]
-          };
-          break;
-        }
-
-        case "whatsapp_get_chat_history": {
-          const chatId = params?.chatId;
-          const limit = params?.limit || 20;
-
-          if (!chatId || !simulatedMessages[chatId]) {
-            result = { content: [{ type: "text", text: JSON.stringify({ messages: [] }, null, 2) }] };
-          } else {
-            const history = simulatedMessages[chatId].slice(-limit).map(m => ({
-              messageId: m.key.id,
-              from: m.pushName,
-              body: m.message?.conversation || "",
-              timestamp: new Date(m.messageTimestamp * 1000).toISOString(),
-              fromMe: m.key.fromMe
-            }));
-
-            result = {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({ messages: history }, null, 2)
-                }
-              ]
-            };
-          }
-          break;
-        }
-
-        case "whatsapp_send_message": {
-          const { to, body } = params || {};
-          if (!to || !body) {
-            error = { code: -32602, message: "Arguments 'to' and 'body' are required" };
-            break;
-          }
-
-          let jid = to;
-          if (!to.includes("@")) {
-            jid = `${to.replace(/[^\d]/g, "")}@s.whatsapp.net`;
-          }
-
-          const newMsg = {
-            key: { id: `wmsg_sim_${Math.random().toString(36).substring(2, 9)}`, remoteJid: jid, fromMe: true },
-            pushName: "Rahul",
-            message: { conversation: body },
-            messageTimestamp: Math.floor(Date.now() / 1000)
-          };
-
-          if (!simulatedMessages[jid]) {
-            simulatedMessages[jid] = [];
-            // Create contact metadata if missing
-            if (!MOCK_CONTACTS[jid]) {
-              MOCK_CONTACTS[jid] = { id: jid, name: to, phone: to };
-            }
-          }
-          simulatedMessages[jid].push(newMsg);
-
-          result = {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  success: true,
-                  message: "WhatsApp message sent successfully (Simulated)",
-                  messageId: newMsg.key.id,
-                  recipient: jid
-                }, null, 2)
-              }
-            ]
-          };
-          break;
-        }
-
-        case "whatsapp_search_chats": {
-          const query = params?.query || "";
-          const lowerQuery = query.toLowerCase();
-
-          const foundChats = Object.entries(MOCK_CONTACTS)
-            .filter(([jid, contact]) =>
-              contact.name.toLowerCase().includes(lowerQuery) ||
-              jid.toLowerCase().includes(lowerQuery) ||
-              (simulatedMessages[jid] || []).some(m => m.message?.conversation?.toLowerCase().includes(lowerQuery))
-            )
-            .map(([jid, contact]) => {
-              const msgs = simulatedMessages[jid] || [];
-              return {
-                chatId: jid,
-                name: contact.name,
-                isGroup: !!contact.isGroup,
-                lastMessage: msgs.length > 0 ? msgs[msgs.length - 1].message?.conversation : ""
-              };
-            });
-
-          result = {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({ chats: foundChats }, null, 2)
-              }
-            ]
-          };
-          break;
-        }
-
-        case "whatsapp_summarize_conversations": {
-          const chatId = params?.chatId;
-          let summary = "";
-
-          if (chatId) {
-            const contact = MOCK_CONTACTS[chatId] || { name: chatId };
-            if (chatId === "123456789@s.whatsapp.net") {
-              summary = `Sarah Jenkins requested feedback on the NDA terms via email. Rahul replied that he is reviewing them and will finalize within 2 days. Sarah proposed meeting for lunch tomorrow to sync.`;
-            } else if (chatId === "987654321@s.whatsapp.net") {
-              summary = `Alex Rivera asked if the coffee meeting tomorrow at 4:30 PM is still on. Rahul confirmed the Starbucks location. Alex noted he wants to discuss the technical roadmap and milestones.`;
-            } else if (chatId === "111222333@s.whatsapp.net") {
-              summary = `John Doe reminded Rahul to submit the Q2 presentation slides by 4:45 PM today. Rahul confirmed compilation is in progress and he will send them shortly.`;
-            } else if (chatId === "120363024555555555@g.us") {
-              summary = `Marketing Launch Team sync: Alex Rivera asked if slides are ready. Sarah Jenkins reviewed her budget portion and is waiting on Rahul. John Doe confirmed Rahul will send the slides by 4:45 PM today.`;
-            } else {
-              const msgs = simulatedMessages[chatId] || [];
-              summary = `A chat session with ${contact.name} containing ${msgs.length} messages. The conversation includes coordinate updates and general task management.`;
-            }
-          } else {
-            summary = `Alyla Daily WhatsApp Brief:\n` +
-              `1. Sarah Jenkins (Finance): Review NDA terms (needs reply in 2 days) & Lunch tomorrow proposed.\n` +
-              `2. Alex Rivera (Tech): Coffee tomorrow at 4:30 PM (Starbucks) to review technical roadmap.\n` +
-              `3. John Doe (Acme): Submit Q2 Slides (Due 4:45 PM today).\n` +
-              `4. Marketing Launch Team Group: Awaiting slides from Rahul to finalize campaign presentation tomorrow.`;
-          }
-
-          result = {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({ summary }, null, 2)
-              }
-            ]
-          };
-          break;
-        }
-
-        case "whatsapp_get_contact_details": {
-          const jidOrPhone = params?.jidOrPhone;
-          let contact = Object.values(MOCK_CONTACTS).find(c => c.id === jidOrPhone || c.phone === jidOrPhone);
-
-          if (!contact) {
-            contact = { id: jidOrPhone, name: jidOrPhone, phone: jidOrPhone };
-          }
-
-          result = {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(contact, null, 2)
-              }
-            ]
-          };
-          break;
-        }
-
-        case "whatsapp_list_groups": {
-          const groups = Object.values(MOCK_CONTACTS).filter(c => c.isGroup);
-          result = {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({ groups }, null, 2)
-              }
-            ]
-          };
-          break;
-        }
-
-        case "whatsapp_get_group_messages": {
-          const groupId = params?.groupId;
-          const limit = params?.limit || 20;
-
-          if (!groupId || !MOCK_CONTACTS[groupId]?.isGroup) {
-            error = { code: -32602, message: `Group with ID ${groupId} not found` };
-            break;
-          }
-
-          const msgs = (simulatedMessages[groupId] || []).slice(-limit).map(m => ({
-            messageId: m.key.id,
-            from: m.pushName,
-            body: m.message?.conversation || "",
-            timestamp: new Date(m.messageTimestamp * 1000).toISOString()
-          }));
-
-          result = {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({ messages: msgs }, null, 2)
-              }
-            ]
-          };
-          break;
-        }
-
-        case "whatsapp_send_group_messages":
-        case "whatsapp_send_group_message": {
-          const { groupId, body } = params || {};
-          if (!groupId || !body) {
-            error = { code: -32602, message: "Arguments 'groupId' and 'body' are required" };
-            break;
-          }
-
-          if (!MOCK_CONTACTS[groupId]?.isGroup) {
-            error = { code: -32602, message: `Group with ID ${groupId} not found` };
-            break;
-          }
-
-          const newMsg = {
-            key: { id: `wmsg_sim_${Math.random().toString(36).substring(2, 9)}`, remoteJid: groupId, fromMe: true },
-            pushName: "Rahul",
-            message: { conversation: body },
-            messageTimestamp: Math.floor(Date.now() / 1000)
-          };
-
-          if (!simulatedMessages[groupId]) {
-            simulatedMessages[groupId] = [];
-          }
-          simulatedMessages[groupId].push(newMsg);
-
-          result = {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  success: true,
-                  message: "WhatsApp group message sent successfully (Simulated)",
-                  messageId: newMsg.key.id,
-                  recipientGroup: groupId
-                }, null, 2)
-              }
-            ]
-          };
-          break;
-        }
-
-        default:
-          error = { code: -32601, message: `Method not found: ${method}` };
+    // Auto-restart socket if disconnected in memory but connected in DB
+    if (!session) {
+      session = await initWhatsAppConnection(userId, whatsapp.phoneNumber);
+      // Wait up to 5 seconds for connection to open
+      let attempts = 0;
+      while (session.status !== "connected" && attempts < 10) {
+        await new Promise(r => setTimeout(r, 500));
+        attempts++;
       }
-    } else {
-      // -------------------------------------------------------------
-      // REAL GMAIL/WHATSAPP CONNECTION PATH (Baileys Client API Calls)
-      // -------------------------------------------------------------
-      let session = getWhatsAppSession(userId);
+    }
 
-      // Auto-restart socket if disconnected in memory but connected in DB
-      if (!session) {
-        session = await initWhatsAppConnection(userId, whatsapp.phoneNumber);
-        // Wait up to 5 seconds for connection to open
-        let attempts = 0;
-        while (session.status !== "connected" && attempts < 10) {
-          await new Promise(r => setTimeout(r, 500));
-          attempts++;
-        }
-      }
+    if (session.status !== "connected") {
+      return NextResponse.json({
+        jsonrpc: "2.0",
+        error: { code: -32002, message: `WhatsApp connection is currently ${session.status}. Please check details.` },
+        id
+      }, { status: 503 });
+    }
 
-      if (session.status !== "connected") {
-        return NextResponse.json({
-          jsonrpc: "2.0",
-          error: { code: -32002, message: `WhatsApp connection is currently ${session.status}. Please check details.` },
-          id
-        }, { status: 503 });
-      }
+    const { sock, store } = session;
 
-      const { sock, store } = session;
-
-      switch (method) {
+    switch (method) {
         case "whatsapp_get_recent_messages": {
           const chats = store.chats.slice(0, 20);
           const messages = chats.map((c: any) => {
@@ -574,7 +303,6 @@ export async function POST(req: NextRequest) {
         default:
           error = { code: -32601, message: `Method not found: ${method}` };
       }
-    }
 
     const responseFrame = error
       ? { jsonrpc: "2.0", error, id }

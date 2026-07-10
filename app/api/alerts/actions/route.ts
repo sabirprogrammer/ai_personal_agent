@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasInsforgeAdminKey, insforgeAdmin } from "@/lib/insforge-admin";
 import { publishAlertRealtimeEvent } from "@/lib/alerts-realtime";
-import { loadMockDB, saveMockDB } from "@/lib/mock-db-store";
-
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Internal Server Error";
 }
@@ -28,25 +26,6 @@ export async function POST(req: NextRequest) {
 
     let status = (statusByAction[action] || "active") as any;
 
-    if (!hasInsforgeAdminKey) {
-      const db = loadMockDB();
-      const alert = db.alerts.find(a => a.id === alertId);
-      if (alert) {
-        alert.status = status;
-        alert.updated_at = new Date().toISOString();
-        if (action === "snoozed") {
-          const snoozedUntil = new Date();
-          snoozedUntil.setHours(snoozedUntil.getHours() + 2);
-          alert.snoozed_until = snoozedUntil.toISOString();
-        }
-        if (action === "task" || action === "follow_up" || action === "send_reply") {
-          alert.last_action = action;
-        }
-        saveMockDB(db);
-        return NextResponse.json(alert);
-      }
-      return NextResponse.json({ id: alertId, status });
-    }
 
     status = statusByAction[action] || "active";
     const updates: Record<string, string> = {
