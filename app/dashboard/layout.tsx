@@ -81,14 +81,6 @@ const mainNavItems: NavItem[] = [
     dot: true,
   },
   {
-    name: "Admin Panel",
-    tabKey: "admin",
-    href: "/dashboard?tab=admin",
-    icon: ShieldCheck,
-    iconBg: "bg-emerald-100 dark:bg-emerald-900/40",
-    iconColor: "text-emerald-500 dark:text-emerald-400",
-  },
-  {
     name: "Settings",
     tabKey: "settings",
     href: "/dashboard?tab=settings",
@@ -142,31 +134,11 @@ function SidebarContent({
 }: SidebarContentProps) {
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const tab = searchParams.get("tab") || "dashboard";
     setActiveTab(tab);
   }, [searchParams]);
-
-  useEffect(() => {
-    const checkRole = () => {
-      if (typeof window !== "undefined") {
-        const savedRole = localStorage.getItem("alyla_role");
-        if (savedRole) {
-          setIsAdmin(savedRole === "admin");
-          return;
-        }
-      }
-      const email = user?.email || "";
-      const isDefaultAdmin = email.includes("admin") || email === "nile@sftwtrs.ai" || email === "sanamengal642@gmail.com";
-      setIsAdmin(isDefaultAdmin);
-    };
-
-    checkRole();
-    const interval = setInterval(checkRole, 1000);
-    return () => clearInterval(interval);
-  }, [user]);
 
   const isActive = (item: NavItem) => activeTab === item.tabKey;
 
@@ -256,14 +228,12 @@ function SidebarContent({
 
       {/* ── Main navigation ── */}
       <nav className="flex-1 flex flex-col gap-0.5 overflow-y-auto px-3 pb-2">
-        {mainNavItems
-          .filter(item => isAdmin ? (item.tabKey === "admin" || item.tabKey === "settings") : (item.tabKey !== "admin"))
-          .map(renderNavItem)}
+        {mainNavItems.map(renderNavItem)}
       </nav>
 
       {/* ── Bottom: Pricing Settings + user ── */}
       <div className="border-t border-slate-100 dark:border-white/[0.06] px-3 py-3 flex flex-col gap-0.5">
-        {!isAdmin && renderNavItem(pricingNavItem)}
+        {renderNavItem(pricingNavItem)}
 
         {/* User row */}
         {user &&

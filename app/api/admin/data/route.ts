@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { hasInsforgeAdminKey, insforgeAdmin } from "@/lib/insforge-admin";
 import { loadMockDB } from "@/lib/mock-db-store";
+import { verifyToken } from "@/lib/admin-auth";
 
 // Static mock users as a fallback when database is empty or not using Admin Key
 const MOCK_USERS = [
@@ -35,6 +37,14 @@ const MOCK_USERS = [
 
 export async function GET(req: NextRequest) {
   try {
+    // Session validation check
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get("admin_session")?.value;
+
+    if (!sessionCookie || !verifyToken(sessionCookie)) {
+      return NextResponse.json({ success: false, error: "Unauthorized access" }, { status: 401 });
+    }
+
     let users = MOCK_USERS;
     let alerts: any[] = [];
     let rules: any[] = [];
